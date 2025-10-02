@@ -665,26 +665,43 @@ def main():
                     pygame.draw.ellipse(trail_surf, trail_color, (0, 0, trail_size*2, trail_size*2))
                     game_surface.blit(trail_surf, (trail_x - trail_size, trail_y - trail_size))
 
-            # Efek glow bola (layer glow menyala)
+            # Efek glow bola (layer glow menyala/fire effect)
             glow_intensity = max(current_speed_multiplier - 1.0, ball_glow_timer / 15.0)
             if glow_intensity > 0:
                 glow_size = int(BALL_RADIUS * (2 + glow_intensity * 1.5))
-                if current_speed_multiplier > 2.0:
-                    glow_color = (255, 80, 40)
-                elif current_speed_multiplier > 1.5:
-                    glow_color = (255, 120, 60)
-                elif current_speed_multiplier > 1.0:
-                    glow_color = (255, 140, 80)
+                # Jika glow timer aktif, gunakan warna "api" dan alpha lebih tinggi
+                if ball_glow_timer > 0:
+                    # Warna transisi dari kuning ke oranye ke merah
+                    glow_colors = [
+                        (255, 200, 80),   # kuning
+                        (255, 140, 40),   # oranye
+                        (255, 80, 40),    # merah
+                    ]
+                    for i in range(int(6 + glow_intensity*2)):
+                        layer_size = glow_size - i * 2
+                        if layer_size > 0:
+                            color_idx = min(i // 2, len(glow_colors)-1)
+                            glow_color = glow_colors[color_idx]
+                            alpha = 120 - i*15
+                            glow_surf = pygame.Surface((layer_size*2, layer_size*2), pygame.SRCALPHA)
+                            pygame.draw.ellipse(glow_surf, glow_color + (max(30, alpha),), (0, 0, layer_size*2, layer_size*2))
+                            game_surface.blit(glow_surf, (ball_rect.centerx - layer_size, ball_rect.centery - layer_size))
                 else:
-                    glow_color = COLOR_ACCENT
-                for i in range(int(4 + glow_intensity*1.5)):
-                    layer_size = glow_size - i * 2
-                    if layer_size > 0:
-                        glow_rect = pygame.Rect(ball_rect.centerx - layer_size, ball_rect.centery - layer_size, 
-                                              layer_size * 2, layer_size * 2)
-                        glow_surf = pygame.Surface((layer_size*2, layer_size*2), pygame.SRCALPHA)
-                        pygame.draw.ellipse(glow_surf, glow_color + (60,), (0, 0, layer_size*2, layer_size*2))
-                        game_surface.blit(glow_surf, (ball_rect.centerx - layer_size, ball_rect.centery - layer_size))
+                    # Glow normal berdasarkan speed
+                    if current_speed_multiplier > 2.0:
+                        glow_color = (255, 80, 40)
+                    elif current_speed_multiplier > 1.5:
+                        glow_color = (255, 120, 60)
+                    elif current_speed_multiplier > 1.0:
+                        glow_color = (255, 140, 80)
+                    else:
+                        glow_color = COLOR_ACCENT
+                    for i in range(int(4 + glow_intensity*1.5)):
+                        layer_size = glow_size - i * 2
+                        if layer_size > 0:
+                            glow_surf = pygame.Surface((layer_size*2, layer_size*2), pygame.SRCALPHA)
+                            pygame.draw.ellipse(glow_surf, glow_color + (60,), (0, 0, layer_size*2, layer_size*2))
+                            game_surface.blit(glow_surf, (ball_rect.centerx - layer_size, ball_rect.centery - layer_size))
 
             # Gambar bayangan bola
             pygame.draw.rect(game_surface, COLOR_SHADOW, (ball_rect.x + 1, ball_rect.y + 1, ball_rect.width, ball_rect.height))
