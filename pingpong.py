@@ -114,6 +114,23 @@ def wrap_text(text, font, max_width):
     return lines
 
 def main():
+    # --- SHOP & SKIN SYSTEM ---
+    STATE_SHOP = 6
+    menu_options = ["2 PLAYER", "VS COMPUTER", "SHOP", "QUIT"]
+    # Shop variables
+    shop_selected = 0
+    shop_options = [
+        {"name": "Paddle Default", "type": "paddle", "color": COLOR_PADDLE, "price": 0},
+        {"name": "Paddle Blue", "type": "paddle", "color": (100,180,255), "price": 10},
+        {"name": "Paddle Pink", "type": "paddle", "color": (255,120,180), "price": 15},
+        {"name": "Ball Default", "type": "ball", "color": COLOR_BALL, "price": 0},
+        {"name": "Ball Green", "type": "ball", "color": (120,255,120), "price": 12},
+        {"name": "Ball Purple", "type": "ball", "color": (180,120,255), "price": 18},
+    ]
+    owned_skins = set([0,3])  # default owned (index)
+    equipped_paddle = 0
+    equipped_ball = 3
+    coins = 0
     pygame.init()
 
     # === SETUP FULLSCREEN ===
@@ -182,8 +199,8 @@ def main():
     winner = None
     
     # Menu variables
-    menu_selected = 0  # 0 = 2 Player, 1 = VS Computer, 2 = Quit
-    menu_options = ["2 PLAYER", "VS COMPUTER", "QUIT"]
+    menu_selected = 0  # 0 = 2 Player, 1 = VS Computer, 2 = Shop, 3 = Quit
+    # menu_options already declared above with SHOP included
     
     # Difficulty menu variables
     difficulty_selected = 1  # Default medium
@@ -217,24 +234,24 @@ def main():
         """Mendapatkan setting AI berdasarkan tingkat kesulitan"""
         if difficulty == DIFFICULTY_EASY:
             return {
-                'speed': 1.4,
-                'prediction_error': 0.60,
-                'reaction_time': 0.60,
-                'accuracy': 0.3
+                'speed': 1.2,
+                'prediction_error': 0.80,
+                'reaction_time': 0.80,
+                'accuracy': 0.1
             }
         elif difficulty == DIFFICULTY_MEDIUM:
             return {
-                'speed': 1.8,
-                'prediction_error': 0.50,
-                'reaction_time': 0.50,
-                'accuracy': 0.4
+                'speed': 1.4,
+                'prediction_error': 0.70,
+                'reaction_time': 0.70,
+                'accuracy': 0.2
             }
         else:  # HARD
             return {
-                'speed': 2.2,
-                'prediction_error': 0.40,
-                'reaction_time': 0.40,
-                'accuracy': 0.6
+                'speed': 1.6,
+                'prediction_error': 0.60,
+                'reaction_time': 0.60,
+                'accuracy': 0.3
             }
 
     def reset_ball(direction_to_loser=1):
@@ -395,15 +412,16 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            
             # Tambahkan kontrol untuk keluar dari fullscreen atau kembali ke menu utama
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     if current_game_state == STATE_PLAY:
                         current_game_state = STATE_MAIN_MENU
+                    elif current_game_state == STATE_SHOP:
+                        current_game_state = STATE_MAIN_MENU
                     else:
                         running = False
-            
+            # MAIN MENU
             if current_game_state == STATE_MAIN_MENU:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_UP:
@@ -415,8 +433,38 @@ def main():
                             start_new_game(MODE_TWO_PLAYER)
                         elif menu_selected == 1:  # VS Computer
                             current_game_state = STATE_DIFFICULTY_SELECT
-                        elif menu_selected == 2:  # Quit
+                        elif menu_selected == 2:  # SHOP
+                            current_game_state = STATE_SHOP
+                        elif menu_selected == 3:  # Quit
                             running = False
+            # SHOP MENU
+            elif current_game_state == STATE_SHOP:
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_UP:
+                        shop_selected = (shop_selected - 1) % len(shop_options)
+                    elif event.key == pygame.K_DOWN:
+                        shop_selected = (shop_selected + 1) % len(shop_options)
+                    elif event.key == pygame.K_SPACE or event.key == pygame.K_RETURN:
+                        # Sistem beli dan pakai skin:
+                        if shop_selected in owned_skins:
+                            # Jika sudah dimiliki, langsung pakai
+                            if shop_options[shop_selected]["type"] == "paddle":
+                                equipped_paddle = shop_selected
+                            else:
+                                equipped_ball = shop_selected
+                        else:
+                            # Jika belum dimiliki, cek koin cukup lalu beli
+                            price = shop_options[shop_selected]["price"]
+                            if coins >= price:
+                                coins -= price
+                                owned_skins.add(shop_selected)
+                                # Langsung pakai setelah beli
+                                if shop_options[shop_selected]["type"] == "paddle":
+                                    equipped_paddle = shop_selected
+                                else:
+                                    equipped_ball = shop_selected
+                    elif event.key == pygame.K_BACKSPACE or event.key == pygame.K_ESCAPE:
+                        current_game_state = STATE_MAIN_MENU
             
             elif current_game_state == STATE_DIFFICULTY_SELECT:
                 if event.type == pygame.KEYDOWN:
@@ -467,14 +515,15 @@ def main():
             elif current_game_state == STATE_GAME_OVER:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_SPACE:
-                        # Update statistik
+                        # Update statistik dan reward koin jika menang lawan komputer
                         if game_mode == MODE_VS_COMPUTER:
                             total_games += 1
                             if winner == "Player 1":
                                 player_wins += 1
+                                coins_reward = 10  # Jumlah koin yang didapatkan
+                                coins += coins_reward
                             else:
                                 ai_wins += 1
-                        
                         current_game_state = STATE_MAIN_MENU
                         menu_selected = 0  # Reset menu selection
 
@@ -586,35 +635,65 @@ def main():
 
         if current_game_state == STATE_MAIN_MENU:
             # Judul game
-            draw_text_with_shadow(game_surface, 'COZY PONG', title_font, COLOR_TEXT, COLOR_SHADOW, 
-                                LOW_RES_WIDTH // 2, 40)
-            
+            draw_text_with_shadow(game_surface, 'COZY PONG', title_font, COLOR_TEXT, COLOR_SHADOW, LOW_RES_WIDTH // 2, 40)
             # Menu options
             menu_start_y = 100
             menu_spacing = 25
-            
             for i, option in enumerate(menu_options):
                 color = COLOR_SELECTED if i == menu_selected else COLOR_TEXT
-                draw_text_with_shadow(game_surface, option, medium_font, color, COLOR_SHADOW,
-                                    LOW_RES_WIDTH // 2, menu_start_y + i * menu_spacing)
-                
-                # Indicator untuk opsi yang dipilih
+                draw_text_with_shadow(game_surface, option, medium_font, color, COLOR_SHADOW, LOW_RES_WIDTH // 2, menu_start_y + i * menu_spacing)
                 if i == menu_selected:
-                    draw_text_with_shadow(game_surface, '>', medium_font, COLOR_SELECTED, COLOR_SHADOW,
-                                        LOW_RES_WIDTH // 2 - 80, menu_start_y + i * menu_spacing)
-            
-            # Instruksi dengan text wrapping
-            instructions = [
-                "UP/DOWN: navigasi",
-                "SPACE: pilih",
-                "ESC: keluar"
-            ]
-            
+                    draw_text_with_shadow(game_surface, '>', medium_font, COLOR_SELECTED, COLOR_SHADOW, LOW_RES_WIDTH // 2 - 80, menu_start_y + i * menu_spacing)
+            # Instruksi
+            instructions = ["UP/DOWN: navigasi", "SPACE: pilih", "ESC: keluar"]
             instruction_y = 190
             for instruction in instructions:
-                draw_text_with_shadow(game_surface, instruction, small_font, COLOR_ACCENT, COLOR_SHADOW,
-                                    LOW_RES_WIDTH // 2, instruction_y)
+                draw_text_with_shadow(game_surface, instruction, small_font, COLOR_ACCENT, COLOR_SHADOW, LOW_RES_WIDTH // 2, instruction_y)
                 instruction_y += 15
+        # SHOP MENU
+        elif current_game_state == STATE_SHOP:
+            draw_text_with_shadow(game_surface, 'SHOP', title_font, COLOR_ACCENT, COLOR_SHADOW, LOW_RES_WIDTH // 2, 30)
+            shop_start_y = 65
+            shop_spacing = 32
+            max_visible = 4  # Maksimal item shop yang ditampilkan per halaman
+            total_items = len(shop_options)
+            # Hitung halaman shop
+            current_page = shop_selected // max_visible
+            total_pages = (total_items + max_visible - 1) // max_visible
+            page_start = current_page * max_visible
+            page_end = min(page_start + max_visible, total_items)
+            for idx, i in enumerate(range(page_start, page_end)):
+                item = shop_options[i]
+                owned = i in owned_skins
+                equipped = (item["type"] == "paddle" and equipped_paddle == i) or (item["type"] == "ball" and equipped_ball == i)
+                color = COLOR_SELECTED if i == shop_selected else (COLOR_ACCENT if owned else COLOR_TEXT)
+                name = item["name"]
+                price = item["price"]
+                label = name
+                if owned:
+                    label += " (Owned)"
+                if equipped:
+                    label += " [Equipped]"
+                if not owned and price > 0:
+                    label += f" - {price} koin"
+                draw_text_with_shadow(game_surface, label, medium_font, color, COLOR_SHADOW, LOW_RES_WIDTH // 2, shop_start_y + idx * shop_spacing)
+                if i == shop_selected:
+                    draw_text_with_shadow(game_surface, '>', medium_font, COLOR_SELECTED, COLOR_SHADOW, LOW_RES_WIDTH // 2 - 100, shop_start_y + idx * shop_spacing)
+            # Tampilkan panah jika ada halaman berikutnya/sebelumnya
+            if current_page > 0:
+                draw_text_with_shadow(game_surface, '^', medium_font, COLOR_ACCENT, COLOR_SHADOW, LOW_RES_WIDTH // 2 + 90, shop_start_y - 18)
+            if current_page < total_pages - 1:
+                draw_text_with_shadow(game_surface, 'v', medium_font, COLOR_ACCENT, COLOR_SHADOW, LOW_RES_WIDTH // 2 + 90, shop_start_y + (max_visible-1) * shop_spacing + 18)
+            # Tampilkan jumlah koin
+            coin_text = f"Koin: {coins}"
+            draw_text_with_shadow(game_surface, coin_text, medium_font, COLOR_ACCENT, COLOR_SHADOW, LOW_RES_WIDTH // 2, LOW_RES_HEIGHT - 15)
+            # Instruksi
+            shop_instructions = ["UP/DOWN: pilih skin", "SPACE: beli/pakai", "ESC/BACKSPACE: kembali"]
+            # Tempatkan instruksi di bagian paling bawah, di atas koin
+            shop_instruction_y = LOW_RES_HEIGHT - 55
+            for instruction in shop_instructions:
+                draw_text_with_shadow(game_surface, instruction, small_font, COLOR_ACCENT, COLOR_SHADOW, LOW_RES_WIDTH // 2, shop_instruction_y)
+                shop_instruction_y += 13
 
         elif current_game_state == STATE_DIFFICULTY_SELECT:
             # Judul
@@ -640,11 +719,15 @@ def main():
         elif current_game_state == STATE_PLAY:
             # Gambar paddle dengan bayangan setelah efek bola
             pygame.draw.rect(game_surface, COLOR_SHADOW, (paddle_1_rect.x + 1, paddle_1_rect.y + 1, paddle_1_rect.width, paddle_1_rect.height))
-            pygame.draw.rect(game_surface, COLOR_PADDLE, paddle_1_rect)
+            pygame.draw.rect(game_surface, shop_options[equipped_paddle]["color"], paddle_1_rect)
             pygame.draw.rect(game_surface, COLOR_SHADOW, (paddle_2_rect.x + 1, paddle_2_rect.y + 1, paddle_2_rect.width, paddle_2_rect.height))
-            pygame.draw.rect(game_surface, COLOR_AI_PADDLE if game_mode == MODE_VS_COMPUTER else COLOR_PADDLE, paddle_2_rect)
+            # Paddle 2 pakai skin jika 2P, atau warna AI jika lawan komputer
+            if game_mode == MODE_VS_COMPUTER:
+                pygame.draw.rect(game_surface, COLOR_AI_PADDLE, paddle_2_rect)
+            else:
+                pygame.draw.rect(game_surface, shop_options[equipped_paddle]["color"], paddle_2_rect)
             # Garis tengah putus-putus (selalu muncul saat main)
-            draw_dashed_line(game_surface, COLOR_PADDLE, 
+            draw_dashed_line(game_surface, shop_options[equipped_paddle]["color"], 
                              (LOW_RES_WIDTH // 2, 5), (LOW_RES_WIDTH // 2, LOW_RES_HEIGHT - 5), 
                              width=2, dash_length=6, space_length=4)
 
@@ -662,7 +745,7 @@ def main():
                     elif current_speed_multiplier > 1.0:
                         trail_color = (255, int(160 + 40 * (i + 1) / len(ball_trail)), 100)
                     else:
-                        trail_color = COLOR_BALL
+                        trail_color = shop_options[equipped_ball]["color"]
                     trail_surf = pygame.Surface((trail_size*2, trail_size*2), pygame.SRCALPHA)
                     trail_surf.set_alpha(alpha)
                     pygame.draw.ellipse(trail_surf, trail_color, (0, 0, trail_size*2, trail_size*2))
@@ -710,14 +793,7 @@ def main():
             pygame.draw.rect(game_surface, COLOR_SHADOW, (ball_rect.x + 1, ball_rect.y + 1, ball_rect.width, ball_rect.height))
 
             # Gambar bola utama dengan warna berubah sesuai kecepatan
-            if current_speed_multiplier > 2.0:
-                ball_color = (255, 100, 100)
-            elif current_speed_multiplier > 1.5:
-                ball_color = (255, 120, 80)
-            elif current_speed_multiplier > 1.0:
-                ball_color = (255, 140, 100)
-            else:
-                ball_color = COLOR_BALL
+            ball_color = shop_options[equipped_ball]["color"]
             pygame.draw.ellipse(game_surface, ball_color, ball_rect)
 
             # Efek berkedip untuk kecepatan sangat tinggi
@@ -772,15 +848,18 @@ def main():
 
         elif current_game_state == STATE_PLAY or current_game_state == STATE_SCORE_SCREEN:
             # Garis tengah putus-putus (selalu di bawah skor, di atas background)
-            draw_dashed_line(game_surface, COLOR_PADDLE, 
+            draw_dashed_line(game_surface, shop_options[equipped_paddle]["color"], 
                              (LOW_RES_WIDTH // 2, 5), (LOW_RES_WIDTH // 2, LOW_RES_HEIGHT - 5), 
                              width=2, dash_length=6, space_length=4)
 
             # Gambar paddle dengan bayangan
             pygame.draw.rect(game_surface, COLOR_SHADOW, (paddle_1_rect.x + 1, paddle_1_rect.y + 1, paddle_1_rect.width, paddle_1_rect.height))
-            pygame.draw.rect(game_surface, COLOR_PADDLE, paddle_1_rect)
+            pygame.draw.rect(game_surface, shop_options[equipped_paddle]["color"], paddle_1_rect)
             pygame.draw.rect(game_surface, COLOR_SHADOW, (paddle_2_rect.x + 1, paddle_2_rect.y + 1, paddle_2_rect.width, paddle_2_rect.height))
-            pygame.draw.rect(game_surface, COLOR_PADDLE, paddle_2_rect)
+            if game_mode == MODE_VS_COMPUTER:
+                pygame.draw.rect(game_surface, COLOR_AI_PADDLE, paddle_2_rect)
+            else:
+                pygame.draw.rect(game_surface, shop_options[equipped_paddle]["color"], paddle_2_rect)
 
             # Efek trail bola dengan alpha/transparansi (efek api/terbakar)
             if current_game_state == STATE_PLAY and len(ball_trail) > 1:
@@ -796,7 +875,7 @@ def main():
                     elif current_speed_multiplier > 1.0:
                         trail_color = (255, int(160 + 40 * (i + 1) / len(ball_trail)), 100)
                     else:
-                        trail_color = COLOR_BALL
+                        trail_color = shop_options[equipped_ball]["color"]
                     # Surface sementara untuk alpha
                     trail_surf = pygame.Surface((trail_size*2, trail_size*2), pygame.SRCALPHA)
                     trail_surf.set_alpha(alpha)
@@ -834,37 +913,25 @@ def main():
             pygame.draw.rect(game_surface, COLOR_SHADOW, (ball_rect.x + 1, ball_rect.y + 1, ball_rect.width, ball_rect.height))
             
             # Gambar bola utama dengan warna berubah sesuai kecepatan
-            if current_speed_multiplier > 2.0:
-                ball_color = (255, 100, 100)  # Merah terang untuk kecepatan sangat tinggi
-            elif current_speed_multiplier > 1.5:
-                ball_color = (255, 120, 80)   # Oranye kemerahan untuk kecepatan tinggi
-            elif current_speed_multiplier > 1.0:
-                ball_color = (255, 140, 100)  # Oranye terang untuk kecepatan sedang
-            else:
-                ball_color = COLOR_BALL
-            
+            ball_color = shop_options[equipped_ball]["color"]
             pygame.draw.ellipse(game_surface, ball_color, ball_rect)
             
-            # Efek berkedip untuk kecepatan sangat tinggi
             if current_speed_multiplier > 2.0 and int(pygame.time.get_ticks() / 80) % 2:
                 pygame.draw.ellipse(game_surface, (255, 255, 255), ball_rect, 1)
 
-            # Tampilkan Skor
+            # Tampilkan skor
             score_1_text = medium_font.render(str(score_1), True, COLOR_TEXT)
             score_1_rect = score_1_text.get_rect(center=(LOW_RES_WIDTH // 4, 20))
             game_surface.blit(score_1_text, score_1_rect)
-
             score_2_text = medium_font.render(str(score_2), True, COLOR_TEXT)
             score_2_rect = score_2_text.get_rect(center=(LOW_RES_WIDTH * 3 // 4, 20))
             game_surface.blit(score_2_text, score_2_rect)
-            
             # Tampilkan indikator kecepatan saat bermain
             if current_game_state == STATE_PLAY:
                 speed_text = f"Speed: {current_speed_multiplier:.1f}x"
                 speed_display = small_font.render(speed_text, True, COLOR_ACCENT)
                 speed_rect = speed_display.get_rect(center=(LOW_RES_WIDTH // 2, 40))
                 game_surface.blit(speed_display, speed_rect)
-                
                 # Efek khusus saat kecepatan meningkat
                 if speed_up_effect_timer > 0:
                     flash_intensity = int(255 * (speed_up_effect_timer / 30.0))
@@ -877,34 +944,28 @@ def main():
                 prompt_text = small_font.render('Tekan SPACE untuk Lanjut', True, COLOR_ACCENT)
                 prompt_rect = prompt_text.get_rect(center=(LOW_RES_WIDTH // 2, LOW_RES_HEIGHT - 30))
                 game_surface.blit(prompt_text, prompt_rect)
-
         if current_game_state == STATE_GAME_OVER:
             if winner:
                 win_text_content = f"{winner} MENANG!"
             else:
                 win_text_content = "GAME OVER"
-            
             win_text = large_font.render(win_text_content, True, COLOR_ACCENT)
             win_rect = win_text.get_rect(center=(LOW_RES_WIDTH // 2, LOW_RES_HEIGHT // 3))
             game_surface.blit(win_text, win_rect)
-
             restart_text = small_font.render('Tekan SPACE untuk Main Lagi', True, COLOR_TEXT)
             restart_rect = restart_text.get_rect(center=(LOW_RES_WIDTH // 2, LOW_RES_HEIGHT // 1.5))
             game_surface.blit(restart_text, restart_rect)
-            
             final_score_text_1 = medium_font.render(f"P1: {score_1}", True, COLOR_TEXT)
             game_surface.blit(final_score_text_1, final_score_text_1.get_rect(center=(LOW_RES_WIDTH // 2, LOW_RES_HEIGHT // 2 + 10)))
             final_score_text_2 = medium_font.render(f"P2: {score_2}", True, COLOR_TEXT)
             game_surface.blit(final_score_text_2, final_score_text_2.get_rect(center=(LOW_RES_WIDTH // 2, LOW_RES_HEIGHT // 2 + 35)))
-
         scaled_surface = pygame.transform.scale(game_surface, (scaled_width, scaled_height))
         final_x = offset_x + (render_offset_x * int(scale_factor))
         final_y = offset_y + (render_offset_y * int(scale_factor))
         screen.blit(scaled_surface, (final_x, final_y))
-        
         pygame.display.flip()
-
     pygame.quit()
 
 if __name__ == '__main__':
+    main()
     main()
