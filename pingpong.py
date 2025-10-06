@@ -217,24 +217,24 @@ def main():
         """Mendapatkan setting AI berdasarkan tingkat kesulitan"""
         if difficulty == DIFFICULTY_EASY:
             return {
-                'speed': 1.8,
-                'prediction_error': 0.25,
-                'reaction_time': 0.25,
-                'accuracy': 0.7
+                'speed': 1.4,
+                'prediction_error': 0.60,
+                'reaction_time': 0.60,
+                'accuracy': 0.3
             }
         elif difficulty == DIFFICULTY_MEDIUM:
             return {
-                'speed': 2.2,
-                'prediction_error': 0.12,
-                'reaction_time': 0.15,
-                'accuracy': 0.85
+                'speed': 1.8,
+                'prediction_error': 0.50,
+                'reaction_time': 0.50,
+                'accuracy': 0.4
             }
         else:  # HARD
             return {
-                'speed': 2.6,
-                'prediction_error': 0.05,
-                'reaction_time': 0.08,
-                'accuracy': 0.95
+                'speed': 2.2,
+                'prediction_error': 0.40,
+                'reaction_time': 0.40,
+                'accuracy': 0.6
             }
 
     def reset_ball(direction_to_loser=1):
@@ -396,10 +396,13 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
             
-            # Tambahkan kontrol untuk keluar dari fullscreen
+            # Tambahkan kontrol untuk keluar dari fullscreen atau kembali ke menu utama
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    running = False
+                    if current_game_state == STATE_PLAY:
+                        current_game_state = STATE_MAIN_MENU
+                    else:
+                        running = False
             
             if current_game_state == STATE_MAIN_MENU:
                 if event.type == pygame.KEYDOWN:
