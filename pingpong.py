@@ -34,7 +34,7 @@ AI_DIFFICULTY_ADAPTIVE = True  # AI menyesuaikan tingkat kesulitan
 
 # Konstanta untuk peningkatan kecepatan
 SPEED_INCREASE_INTERVAL = 3.0  # Detik
-SPEED_INCREASE_AMOUNT = 0.15   # Multiplier peningkatan kecepatan
+SPEED_INCREASE_AMOUNT = 0.1    # Multiplier peningkatan kecepatan (lebih bertahap)
 MAX_SPEED_MULTIPLIER = 2.5     # Batas maksimum kecepatan
 
 # Game States
@@ -120,17 +120,37 @@ def main():
     # Shop variables
     shop_selected = 0
     shop_options = [
-        {"name": "Paddle Default", "type": "paddle", "color": COLOR_PADDLE, "price": 0},
-        {"name": "Paddle Blue", "type": "paddle", "color": (100,180,255), "price": 10},
-        {"name": "Paddle Pink", "type": "paddle", "color": (255,120,180), "price": 15},
-        {"name": "Ball Default", "type": "ball", "color": COLOR_BALL, "price": 0},
-        {"name": "Ball Green", "type": "ball", "color": (120,255,120), "price": 12},
-        {"name": "Ball Purple", "type": "ball", "color": (180,120,255), "price": 18},
+    {"name": "Paddle Default", "type": "paddle", "color": COLOR_PADDLE, "price": 0},
+    {"name": "Paddle Blue", "type": "paddle", "color": (100,180,255), "price": 10},
+    {"name": "Paddle Pink", "type": "paddle", "color": (255,120,180), "price": 15},
+    {"name": "Ball Default", "type": "ball", "color": COLOR_BALL, "price": 0},
+    {"name": "Ball Green", "type": "ball", "color": (120,255,120), "price": 12},
+    {"name": "Ball Purple", "type": "ball", "color": (180,120,255), "price": 18},
+    {"name": "Trail Default", "type": "trail", "trail_style": "default", "price": 0},
+    {"name": "Trail Api", "type": "trail", "trail_style": "fire", "price": 15},
+    {"name": "Trail Pelangi", "type": "trail", "trail_style": "rainbow", "price": 20},
+    {"name": "BG Default", "type": "background", "bg_color": COLOR_BACKGROUND_DARK, "center_color": COLOR_BACKGROUND_LIGHT, "price": 0},
+    {"name": "BG Light", "type": "background", "bg_color": COLOR_BACKGROUND_LIGHT, "center_color": (120, 100, 180), "price": 10},
+    {"name": "BG Blue", "type": "background", "bg_color": (40, 60, 120), "center_color": (80, 120, 200), "price": 15},
+    {"name": "Glow Default", "type": "glow", "glow_color": (255, 180, 100), "price": 0},
+    {"name": "Glow Merah", "type": "glow", "glow_color": (255, 80, 40), "price": 12},
+    {"name": "Glow Biru", "type": "glow", "glow_color": (80, 180, 255), "price": 12},
+    {"name": "Glow Ungu", "type": "glow", "glow_color": (180, 80, 255), "price": 15},
+    {"name": "Explosion Default", "type": "explosion", "explosion_color": (255, 220, 100), "price": 0},
+    {"name": "Explosion Merah", "type": "explosion", "explosion_color": (255, 80, 40), "price": 10},
+    {"name": "Explosion Biru", "type": "explosion", "explosion_color": (80, 180, 255), "price": 10},
+    {"name": "Explosion Ungu", "type": "explosion", "explosion_color": (180, 80, 255), "price": 12},
     ]
-    owned_skins = set([0,3])  # default owned (index)
+    owned_skins = set([0,3,6,9,12,16])  # 16 = Explosion Default
     equipped_paddle = 0
     equipped_ball = 3
-    coins = 0
+    equipped_trail = 6  # index default trail di shop_options
+    equipped_background = 9  # index di shop_options untuk background
+    equipped_glow = 12  # index Glow Default
+    equipped_explosion = 16  # index Explosion Default
+    # Variabel untuk efek ledakan skor
+    explosion_effect = None  # {"timer":..., "pos":(x,y), "color":...}
+    coins = 100
     pygame.init()
 
     # === SETUP FULLSCREEN ===
@@ -212,6 +232,15 @@ def main():
     # Variabel untuk efek bola
     ball_trail = []  # Menyimpan posisi bola untuk efek trail
     ball_glow_timer = 0  # Timer untuk efek glow berdenyut
+
+    # === POWER UP SYSTEM ===
+    powerup_types = [
+        {"type": "slow", "color": (100,255,255)},
+        {"type": "shield", "color": (255,255,100)}
+    ]
+    powerup_active = None  # {"type":..., "timer":..., "owner":...}
+    powerup_obj = None     # {"type":..., "rect":...}
+    powerup_spawn_timer = 0
     
     # Variabel untuk efek speed up
     speed_up_effect_timer = 0
@@ -277,12 +306,14 @@ def main():
         ball_glow_timer = 0
 
     def start_new_game(mode, difficulty=DIFFICULTY_MEDIUM):
-        nonlocal score_1, score_2, winner, current_game_state, game_mode, ai_difficulty
+        nonlocal score_1, score_2, winner, current_game_state, game_mode, ai_difficulty, ai_difficulty_adjustment, difficulty_selected
         score_1 = 0
         score_2 = 0
         winner = None
         game_mode = mode
-        ai_difficulty = difficulty
+        if mode == MODE_VS_COMPUTER:
+            ai_difficulty = difficulty_selected
+            ai_difficulty_adjustment = 0  # Selalu reset penyesuaian AI
         reset_ball(random.choice([-1,1]))
         current_game_state = STATE_PLAY
 
@@ -294,14 +325,8 @@ def main():
         
         if game_mode == MODE_VS_COMPUTER:
             ai_settings = get_ai_settings(ai_difficulty)
-            
-            # Adaptive difficulty berdasarkan performa pemain
-            if AI_DIFFICULTY_ADAPTIVE and total_games > 0:
-                win_ratio = player_wins / total_games
-                if win_ratio > 0.7:  # Pemain menang terlalu sering
-                    ai_difficulty_adjustment = min(ai_difficulty_adjustment + 0.1, 0.5)
-                elif win_ratio < 0.3:  # AI menang terlalu sering
-                    ai_difficulty_adjustment = max(ai_difficulty_adjustment - 0.1, -0.5)
+            # Untuk semua difficulty, reset adjustment ke 0 (tanpa adaptive)
+            ai_difficulty_adjustment = 0
             
             # AI hanya bereaksi jika bola bergerak ke arahnya
             if ball_vel_x > 0:
@@ -403,6 +428,7 @@ def main():
             # Tambahkan sedikit screen shake
             nonlocal screen_shake_timer
             screen_shake_timer = max(screen_shake_timer, 3)
+    point_scored_by_player = None
 
     # GAME LOOP
     running = True
@@ -421,6 +447,45 @@ def main():
                         current_game_state = STATE_MAIN_MENU
                     else:
                         running = False
+            # === POWER UP EFFECT ===
+            slow_active = False
+            shield_p1 = False
+            shield_p2 = False
+            if powerup_active:
+                if powerup_active["type"] == "slow":
+                    slow_active = True
+                elif powerup_active["type"] == "shield":
+                    if powerup_active["owner"] == "p1":
+                        shield_p1 = True
+                    elif powerup_active["owner"] == "p2":
+                        shield_p2 = True
+                powerup_active["timer"] -= 1
+                if powerup_active["timer"] <= 0:
+                    powerup_active = None
+            # === POWER UP SPAWN ===
+            if not powerup_obj and powerup_spawn_timer <= 0:
+                # 1/120 chance per frame untuk spawn powerup (sekitar tiap 2 detik)
+                if random.randint(0, 119) == 0:
+                    ptype = random.choice(powerup_types)
+                    size = 14
+                    px = LOW_RES_WIDTH//2 - size//2 + random.randint(-40,40)
+                    py = LOW_RES_HEIGHT//2 - size//2 + random.randint(-60,60)
+                    powerup_obj = {"type": ptype["type"], "color": ptype["color"], "rect": pygame.Rect(px, py, size, size)}
+                    powerup_spawn_timer = random.randint(8, 15) * 60  # waktu sebelum powerup hilang jika tidak diambil
+            elif powerup_obj:
+                powerup_spawn_timer -= 1
+                if powerup_spawn_timer <= 0:
+                    powerup_obj = None
+            # Cek bola ambil powerup
+            if powerup_obj and ball_rect.colliderect(powerup_obj["rect"]):
+                powerup_active = {"type": powerup_obj["type"], "timer": 6*60, "owner": None}  # 6 detik
+                if powerup_obj["type"] == "shield":
+                    # Shield diberikan ke paddle terakhir yang menyentuh bola
+                    if ball_vel_x < 0:
+                        powerup_active["owner"] = "p1"
+                    else:
+                        powerup_active["owner"] = "p2"
+                powerup_obj = None
             # MAIN MENU
             if current_game_state == STATE_MAIN_MENU:
                 if event.type == pygame.KEYDOWN:
@@ -448,10 +513,19 @@ def main():
                         # Sistem beli dan pakai skin:
                         if shop_selected in owned_skins:
                             # Jika sudah dimiliki, langsung pakai
-                            if shop_options[shop_selected]["type"] == "paddle":
+                            tipe = shop_options[shop_selected]["type"]
+                            if tipe == "paddle":
                                 equipped_paddle = shop_selected
-                            else:
+                            elif tipe == "ball":
                                 equipped_ball = shop_selected
+                            elif tipe == "trail":
+                                equipped_trail = shop_selected
+                            elif tipe == "background":
+                                equipped_background = shop_selected
+                            elif tipe == "glow":
+                                equipped_glow = shop_selected
+                            elif tipe == "explosion":
+                                equipped_explosion = shop_selected
                         else:
                             # Jika belum dimiliki, cek koin cukup lalu beli
                             price = shop_options[shop_selected]["price"]
@@ -459,10 +533,21 @@ def main():
                                 coins -= price
                                 owned_skins.add(shop_selected)
                                 # Langsung pakai setelah beli
-                                if shop_options[shop_selected]["type"] == "paddle":
+                                tipe = shop_options[shop_selected]["type"]
+                                if tipe == "paddle":
                                     equipped_paddle = shop_selected
-                                else:
+                                elif tipe == "ball":
                                     equipped_ball = shop_selected
+                                elif tipe == "trail":
+                                    equipped_trail = shop_selected
+                                elif tipe == "background":
+                                    equipped_background = shop_selected
+                                elif tipe == "glow":
+                                    equipped_glow = shop_selected
+                                elif tipe == "explosion":
+                                    equipped_explosion = shop_selected
+                                elif tipe == "explosion":
+                                    equipped_explosion = shop_selected
                     elif event.key == pygame.K_BACKSPACE or event.key == pygame.K_ESCAPE:
                         current_game_state = STATE_MAIN_MENU
             
@@ -487,43 +572,61 @@ def main():
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_w:
                         paddle_1_move = -PADDLE_SPEED
-                    if event.key == pygame.K_s:
+                    elif event.key == pygame.K_s:
                         paddle_1_move = PADDLE_SPEED
                     # Kontrol paddle 2 hanya untuk mode 2 player
-                    if game_mode == MODE_TWO_PLAYER:
+                    elif game_mode == MODE_TWO_PLAYER:
                         if event.key == pygame.K_UP:
                             paddle_2_move = -PADDLE_SPEED
-                        if event.key == pygame.K_DOWN:
+                        elif event.key == pygame.K_DOWN:
                             paddle_2_move = PADDLE_SPEED
-                if event.type == pygame.KEYUP:
-                    if event.key == pygame.K_w or event.key == pygame.K_s:
+                elif event.type == pygame.KEYUP:
+                    # Lepas tombol paddle
+                    if event.key in (pygame.K_w, pygame.K_s):
                         paddle_1_move = 0
-                    # Kontrol paddle 2 hanya untuk mode 2 player
-                    if game_mode == MODE_TWO_PLAYER:
-                        if event.key == pygame.K_UP or event.key == pygame.K_DOWN:
-                            paddle_2_move = 0
-            
-            elif current_game_state == STATE_SCORE_SCREEN:
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_SPACE:
-                        if winner:
-                            current_game_state = STATE_GAME_OVER
+                    elif game_mode == MODE_TWO_PLAYER and event.key in (pygame.K_UP, pygame.K_DOWN):
+                        paddle_2_move = 0
+                        # Sistem beli dan pakai skin:
+                        if shop_selected in owned_skins:
+                            # Jika sudah dimiliki, langsung pakai
+                            tipe = shop_options[shop_selected]["type"]
+                            if tipe == "paddle":
+                                equipped_paddle = shop_selected
+                            elif tipe == "ball":
+                                equipped_ball = shop_selected
+                            elif tipe == "trail":
+                                equipped_trail = shop_selected
+                            elif tipe == "background":
+                                equipped_background = shop_selected
+                            elif tipe == "glow":
+                                equipped_glow = shop_selected
+                            elif tipe == "explosion":
+                                equipped_explosion = shop_selected
                         else:
-                            reset_ball(1 if ball_vel_x < 0 else -1)
-                            current_game_state = STATE_PLAY
-            
-            elif current_game_state == STATE_GAME_OVER:
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_SPACE:
-                        # Update statistik dan reward koin jika menang lawan komputer
-                        if game_mode == MODE_VS_COMPUTER:
-                            total_games += 1
-                            if winner == "Player 1":
-                                player_wins += 1
-                                coins_reward = 10  # Jumlah koin yang didapatkan
-                                coins += coins_reward
+                            # Jika belum dimiliki, cek koin cukup lalu beli
+                            price = shop_options[shop_selected]["price"]
+                            if coins >= price:
+                                coins -= price
+                                owned_skins.add(shop_selected)
+                                # Langsung pakai setelah beli
+                                tipe = shop_options[shop_selected]["type"]
+                                if tipe == "paddle":
+                                    equipped_paddle = shop_selected
+                                elif tipe == "ball":
+                                    equipped_ball = shop_selected
+                                elif tipe == "trail":
+                                    equipped_trail = shop_selected
+                                elif tipe == "background":
+                                    equipped_background = shop_selected
+                                elif tipe == "glow":
+                                    equipped_glow = shop_selected
+                                elif tipe == "explosion":
+                                    equipped_explosion = shop_selected
                             else:
                                 ai_wins += 1
+                        # Jika ingin main lagi VS Computer, pastikan ai_difficulty di-set ulang
+                        if game_mode == MODE_VS_COMPUTER:
+                            ai_difficulty = difficulty_selected
                         current_game_state = STATE_MAIN_MENU
                         menu_selected = 0  # Reset menu selection
 
@@ -537,8 +640,9 @@ def main():
                 update_ai()
             
             # Pergerakan paddle
-            paddle_1_rect.y += paddle_1_move * 60 * delta_time
-            paddle_2_rect.y += paddle_2_move * 60 * delta_time
+            speed_mod = 0.4 if slow_active else 1.0
+            paddle_1_rect.y += paddle_1_move * 60 * delta_time * speed_mod
+            paddle_2_rect.y += paddle_2_move * 60 * delta_time * speed_mod
 
             # Batas paddle
             if paddle_1_rect.top < 0: paddle_1_rect.top = 0
@@ -547,8 +651,8 @@ def main():
             if paddle_2_rect.bottom > LOW_RES_HEIGHT: paddle_2_rect.bottom = LOW_RES_HEIGHT
 
             # Pergerakan bola
-            ball_rect.x += ball_vel_x * 60 * delta_time
-            ball_rect.y += ball_vel_y * 60 * delta_time
+            ball_rect.x += ball_vel_x * 60 * delta_time * speed_mod
+            ball_rect.y += ball_vel_y * 60 * delta_time * speed_mod
             
             # Update trail bola untuk efek visual
             ball_trail.append((ball_rect.centerx, ball_rect.centery))
@@ -568,24 +672,34 @@ def main():
             collided_paddle_2 = paddle_2_rect.colliderect(ball_rect)
 
             if collided_paddle_1 and ball_vel_x < 0:
-                # Pertahankan kecepatan yang sudah ditingkatkan
-                speed_sign = 1 if ball_vel_x > 0 else -1
-                ball_vel_x = abs(ball_vel_x) * -1.05 * speed_sign
-                ball_rect.left = paddle_1_rect.right + 1
-                relative_intersect_y = (paddle_1_rect.centery - ball_rect.centery) / (PADDLE_HEIGHT / 2)
-                ball_vel_y -= relative_intersect_y * 0.5 * current_speed_multiplier
-                screen_shake_timer = max(5, int(3 * current_speed_multiplier))
-                ball_glow_timer = max(15, int(10 * current_speed_multiplier))
+                # Shield: bola mantul tanpa efek jika shield aktif
+                if shield_p1:
+                    ball_vel_x *= -1
+                    powerup_active = None
+                else:
+                    # Pertahankan kecepatan yang sudah ditingkatkan
+                    speed_sign = 1 if ball_vel_x > 0 else -1
+                    ball_vel_x = abs(ball_vel_x) * -1.05 * speed_sign
+                    ball_rect.left = paddle_1_rect.right + 1
+                    relative_intersect_y = (paddle_1_rect.centery - ball_rect.centery) / (PADDLE_HEIGHT / 2)
+                    ball_vel_y -= relative_intersect_y * 0.5 * current_speed_multiplier
+                    screen_shake_timer = max(5, int(3 * current_speed_multiplier))
+                    ball_glow_timer = max(15, int(10 * current_speed_multiplier))
 
             if collided_paddle_2 and ball_vel_x > 0:
-                # Pertahankan kecepatan yang sudah ditingkatkan
-                speed_sign = 1 if ball_vel_x > 0 else -1
-                ball_vel_x = abs(ball_vel_x) * -1.05 * speed_sign
-                ball_rect.right = paddle_2_rect.left - 1
-                relative_intersect_y = (paddle_2_rect.centery - ball_rect.centery) / (PADDLE_HEIGHT / 2)
-                ball_vel_y -= relative_intersect_y * 0.5 * current_speed_multiplier
-                screen_shake_timer = max(5, int(3 * current_speed_multiplier))
-                ball_glow_timer = max(15, int(10 * current_speed_multiplier))
+                # Shield: bola mantul tanpa efek jika shield aktif
+                if shield_p2:
+                    ball_vel_x *= -1
+                    powerup_active = None
+                else:
+                    # Pertahankan kecepatan yang sudah ditingkatkan
+                    speed_sign = 1 if ball_vel_x > 0 else -1
+                    ball_vel_x = abs(ball_vel_x) * -1.05 * speed_sign
+                    ball_rect.right = paddle_2_rect.left - 1
+                    relative_intersect_y = (paddle_2_rect.centery - ball_rect.centery) / (PADDLE_HEIGHT / 2)
+                    ball_vel_y -= relative_intersect_y * 0.5 * current_speed_multiplier
+                    screen_shake_timer = max(5, int(3 * current_speed_multiplier))
+                    ball_glow_timer = max(15, int(10 * current_speed_multiplier))
 
             # Cek skor
             point_scored_by_player = None
@@ -622,16 +736,45 @@ def main():
             render_offset_y = random.randint(-intensity, intensity)
 
         # === RENDER ===
+        # Indikator efek aktif
+        if powerup_active:
+            if powerup_active["type"] == "slow":
+                draw_text_with_shadow(game_surface, "SLOW MOTION!", small_font, (0,255,255), COLOR_SHADOW, LOW_RES_WIDTH//2, 18)
+            elif powerup_active["type"] == "shield":
+                if powerup_active["owner"] == "p1":
+                    draw_text_with_shadow(game_surface, "SHIELD P1!", small_font, (255,255,100), COLOR_SHADOW, 60, 18)
+                else:
+                    draw_text_with_shadow(game_surface, "SHIELD P2!", small_font, (255,255,100), COLOR_SHADOW, LOW_RES_WIDTH-60, 18)
+        # Render powerup jika ada
+        if powerup_obj:
+            # Efek glow di sekitar powerup
+            cx, cy = powerup_obj["rect"].center
+            for i in range(6, 0, -2):
+                alpha = max(40, 120 - i*15)
+                glow_surf = pygame.Surface((powerup_obj["rect"].width+12, powerup_obj["rect"].height+12), pygame.SRCALPHA)
+                pygame.draw.ellipse(glow_surf, (*powerup_obj["color"], alpha), glow_surf.get_rect())
+                game_surface.blit(glow_surf, (powerup_obj["rect"].x-6, powerup_obj["rect"].y-6), special_flags=pygame.BLEND_RGBA_ADD)
+            # Kotak powerup
+            pygame.draw.rect(game_surface, powerup_obj["color"], powerup_obj["rect"], border_radius=6)
+            # Icon di tengah powerup
+            if powerup_obj["type"] == "slow":
+                pygame.draw.circle(game_surface, (0,180,255), (cx,cy), 5)
+                pygame.draw.line(game_surface, (0,180,255), (cx-4,cy), (cx+4,cy), 2)
+            elif powerup_obj["type"] == "shield":
+                pygame.draw.circle(game_surface, (255,255,180), (cx,cy), 6, 2)
+                pygame.draw.line(game_surface, (255,255,180), (cx,cy+3), (cx,cy-3), 2)
         # Bersihkan layar dengan warna hitam
         screen.fill((0, 0, 0))
         
         # Latar belakang game
-        game_surface.fill(COLOR_BACKGROUND_DARK)
+        # Gunakan background yang sedang di-equip
+        bg_color = shop_options[equipped_background].get("bg_color", COLOR_BACKGROUND_DARK)
+        center_color = shop_options[equipped_background].get("center_color", COLOR_BACKGROUND_LIGHT)
+        game_surface.fill(bg_color)
         center_rect_width = LOW_RES_WIDTH // 1.5
         center_rect_height = LOW_RES_HEIGHT
         center_rect_x = (LOW_RES_WIDTH - center_rect_width) // 2
-        pygame.draw.rect(game_surface, COLOR_BACKGROUND_LIGHT, 
-                        (center_rect_x, 0, center_rect_width, center_rect_height))
+        pygame.draw.rect(game_surface, center_color, (center_rect_x, 0, center_rect_width, center_rect_height))
 
         if current_game_state == STATE_MAIN_MENU:
             # Judul game
@@ -665,7 +808,14 @@ def main():
             for idx, i in enumerate(range(page_start, page_end)):
                 item = shop_options[i]
                 owned = i in owned_skins
-                equipped = (item["type"] == "paddle" and equipped_paddle == i) or (item["type"] == "ball" and equipped_ball == i)
+                equipped = (
+                    (item["type"] == "paddle" and equipped_paddle == i) or
+                    (item["type"] == "ball" and equipped_ball == i) or
+                    (item["type"] == "trail" and equipped_trail == i) or
+                    (item["type"] == "background" and equipped_background == i) or
+                    (item["type"] == "glow" and equipped_glow == i) or
+                    (item["type"] == "explosion" and equipped_explosion == i)
+                )
                 color = COLOR_SELECTED if i == shop_selected else (COLOR_ACCENT if owned else COLOR_TEXT)
                 name = item["name"]
                 price = item["price"]
@@ -679,6 +829,23 @@ def main():
                 draw_text_with_shadow(game_surface, label, medium_font, color, COLOR_SHADOW, LOW_RES_WIDTH // 2, shop_start_y + idx * shop_spacing)
                 if i == shop_selected:
                     draw_text_with_shadow(game_surface, '>', medium_font, COLOR_SELECTED, COLOR_SHADOW, LOW_RES_WIDTH // 2 - 100, shop_start_y + idx * shop_spacing)
+            # Trigger efek ledakan saat skor
+            if point_scored_by_player:
+                # Efek ledakan di posisi bola terakhir
+                explosion_color = shop_options[equipped_explosion].get("explosion_color", (255,220,100))
+                explosion_effect = {"timer": 20, "pos": ball_rect.center, "color": explosion_color}
+        # Render efek ledakan skor
+        if explosion_effect and explosion_effect["timer"] > 0:
+            x, y = explosion_effect["pos"]
+            color = explosion_effect["color"]
+            for i in range(6):
+                radius = 18 + i*5 - (20 - explosion_effect["timer"])*2
+                alpha = max(0, 120 - i*20 - (20 - explosion_effect["timer"])*6)
+                if radius > 0 and alpha > 0:
+                    surf = pygame.Surface((radius*2, radius*2), pygame.SRCALPHA)
+                    pygame.draw.circle(surf, color + (alpha,), (radius, radius), radius)
+                    game_surface.blit(surf, (x-radius, y-radius), special_flags=pygame.BLEND_RGBA_ADD)
+            explosion_effect["timer"] -= 1
             # Tampilkan panah jika ada halaman berikutnya/sebelumnya
             if current_page > 0:
                 draw_text_with_shadow(game_surface, '^', medium_font, COLOR_ACCENT, COLOR_SHADOW, LOW_RES_WIDTH // 2 + 90, shop_start_y - 18)
@@ -731,20 +898,25 @@ def main():
                              (LOW_RES_WIDTH // 2, 5), (LOW_RES_WIDTH // 2, LOW_RES_HEIGHT - 5), 
                              width=2, dash_length=6, space_length=4)
 
-            # Efek trail bola dengan alpha/transparansi (efek api/terbakar)
+            # Efek trail bola dengan alpha/transparansi, style bisa diganti dari shop
             if len(ball_trail) > 1:
                 ball_speed = abs(ball_vel_x) + abs(ball_vel_y)
                 speed_factor = min(ball_speed / 3.0, 3.0)
+                trail_style = shop_options[equipped_trail].get("trail_style", "default")
                 for i, (trail_x, trail_y) in enumerate(ball_trail[:-1]):
                     alpha = int(255 * (i + 1) / len(ball_trail) * 0.8)
                     trail_size = max(1, int(BALL_RADIUS * (0.3 + 0.7 * (i + 1) / len(ball_trail))))
-                    if current_speed_multiplier > 2.0:
-                        trail_color = (255, int(80 + 60 * (i + 1) / len(ball_trail)), 40)
-                    elif current_speed_multiplier > 1.5:
-                        trail_color = (255, int(120 + 40 * (i + 1) / len(ball_trail)), 60)
-                    elif current_speed_multiplier > 1.0:
-                        trail_color = (255, int(160 + 40 * (i + 1) / len(ball_trail)), 100)
+                    if trail_style == "fire":
+                        # Efek api: gradasi oranye-merah
+                        trail_color = (255, int(100 + 100 * (i + 1) / len(ball_trail)), 40)
+                    elif trail_style == "rainbow":
+                        # Efek pelangi: cycling hue
+                        import colorsys
+                        hue = (i / len(ball_trail))
+                        rgb = colorsys.hsv_to_rgb(hue, 1, 1)
+                        trail_color = tuple(int(255 * c) for c in rgb)
                     else:
+                        # Default: warna bola
                         trail_color = shop_options[equipped_ball]["color"]
                     trail_surf = pygame.Surface((trail_size*2, trail_size*2), pygame.SRCALPHA)
                     trail_surf.set_alpha(alpha)
@@ -755,39 +927,17 @@ def main():
             glow_intensity = max(current_speed_multiplier - 1.0, ball_glow_timer / 15.0)
             if glow_intensity > 0:
                 glow_size = int(BALL_RADIUS * (2 + glow_intensity * 1.5))
-                # Jika glow timer aktif, gunakan warna "api" dan alpha lebih tinggi
-                if ball_glow_timer > 0:
-                    # Warna transisi dari kuning ke oranye ke merah
-                    glow_colors = [
-                        (255, 200, 80),   # kuning
-                        (255, 140, 40),   # oranye
-                        (255, 80, 40),    # merah
-                    ]
-                    for i in range(int(6 + glow_intensity*2)):
-                        layer_size = glow_size - i * 2
-                        if layer_size > 0:
-                            color_idx = min(i // 2, len(glow_colors)-1)
-                            glow_color = glow_colors[color_idx]
-                            alpha = 120 - i*15
-                            glow_surf = pygame.Surface((layer_size*2, layer_size*2), pygame.SRCALPHA)
-                            pygame.draw.ellipse(glow_surf, glow_color + (max(30, alpha),), (0, 0, layer_size*2, layer_size*2))
-                            game_surface.blit(glow_surf, (ball_rect.centerx - layer_size, ball_rect.centery - layer_size))
-                else:
-                    # Glow normal berdasarkan speed
-                    if current_speed_multiplier > 2.0:
-                        glow_color = (255, 80, 40)
-                    elif current_speed_multiplier > 1.5:
-                        glow_color = (255, 120, 60)
-                    elif current_speed_multiplier > 1.0:
-                        glow_color = (255, 140, 80)
-                    else:
-                        glow_color = COLOR_ACCENT
-                    for i in range(int(4 + glow_intensity*1.5)):
-                        layer_size = glow_size - i * 2
-                        if layer_size > 0:
-                            glow_surf = pygame.Surface((layer_size*2, layer_size*2), pygame.SRCALPHA)
-                            pygame.draw.ellipse(glow_surf, glow_color + (60,), (0, 0, layer_size*2, layer_size*2))
-                            game_surface.blit(glow_surf, (ball_rect.centerx - layer_size, ball_rect.centery - layer_size))
+                # Warna glow selalu mengikuti skin glow yang di-equip
+                glow_color = shop_options[equipped_glow].get("glow_color", COLOR_ACCENT)
+                # Efek glow lebih tebal saat ball_glow_timer aktif
+                layer_count = int(6 + glow_intensity*2) if ball_glow_timer > 0 else int(4 + glow_intensity*1.5)
+                for i in range(layer_count):
+                    layer_size = glow_size - i * 2
+                    if layer_size > 0:
+                        alpha = max(30, 120 - i*15) if ball_glow_timer > 0 else 60
+                        glow_surf = pygame.Surface((layer_size*2, layer_size*2), pygame.SRCALPHA)
+                        pygame.draw.ellipse(glow_surf, glow_color + (alpha,), (0, 0, layer_size*2, layer_size*2))
+                        game_surface.blit(glow_surf, (ball_rect.centerx - layer_size, ball_rect.centery - layer_size))
 
             # Gambar bayangan bola
             pygame.draw.rect(game_surface, COLOR_SHADOW, (ball_rect.x + 1, ball_rect.y + 1, ball_rect.width, ball_rect.height))
@@ -899,7 +1049,7 @@ def main():
                 elif current_speed_multiplier > 1.0:
                     glow_color = (255, 140, 80)  # Oranye untuk kecepatan sedang
                 else:
-                    glow_color = COLOR_ACCENT
+                    glow_color = shop_options[equipped_glow].get("glow_color", COLOR_ACCENT)
                 
                 # Gambar multiple layer glow
                 for i in range(int(3 + glow_intensity)):
@@ -967,5 +1117,4 @@ def main():
     pygame.quit()
 
 if __name__ == '__main__':
-    main()
     main()
